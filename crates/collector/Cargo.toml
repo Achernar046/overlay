@@ -9,3 +9,4 @@ description = "CPU/RAM/Disk/Network collector for sysmon"
 sysmon-core.workspace = true
 sysinfo.workspace = true
 smallvec.workspace = true
+nvml-wrapper = "0.13"

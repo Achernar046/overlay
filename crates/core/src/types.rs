@@ -68,3 +68,23 @@ pub struct NetStat {
     pub rx_total: u64,
     pub tx_total: u64,
 }
+
+/// หนึ่งแถวใน Process Monitor — ดึงแยกจาก `Snapshot`
+/// (ตาม plan: refresh process list ทุก 2-3 วิ เฉพาะตอนเปิดแท็บ Process)
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ProcessStat {
+    pub pid: u32,
+    pub name: String,
+    pub cpu_percent: f32,
+    pub mem_bytes: u64,
+    /// รวมทั้งอ่าน+เขียน ต่อวินาที (bytes) — เติมภายหลังตอน refresh ด้วย disk_usage
+    pub io_bps: Option<u64>,
+}
+
+/// ตัวเลือกการเรียง Top-N ใน Process Monitor
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum ProcessSort {
+    #[default]
+    Cpu,
+    Memory,
+}

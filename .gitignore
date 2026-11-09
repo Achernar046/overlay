@@ -1,3 +1,6 @@
 target/
 Cargo.lock
 sysmon.toml
+
+out.txt
+err.txt

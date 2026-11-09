@@ -7,17 +7,25 @@ use std::time::Duration;
 use anyhow::Result;
 
 use sysmon_collector::Collector;
-use sysmon_core::{Config, Snapshot};
+use sysmon_core::{Config, ProcessSort, ProcessStat, Snapshot};
 
 fn main() -> Result<()> {
     let mut warn = |msg: &str| eprintln!("[config] {msg}");
     let config = Config::load_or_default("sysmon.toml", &mut warn);
+    // CLI แบบง่าย: `sysmon-daemon --top 10` พิมพ์ top process ต่อท้าย headline ทุก tick
+    let args: Vec<String> = std::env::args().collect();
+    let top_n: Option<usize> = args
+        .iter()
+        .position(|a| a == "--top")
+        .and_then(|i| args.get(i + 1))
+        .and_then(|v| v.parse().ok());
     eprintln!(
-        "sysmon-daemon: interval={}ms disks={} nets={} temps={}",
+        "sysmon-daemon: interval={}ms disks={} nets={} temps={} top={}",
         config.sample_interval_ms,
         config.collector.monitor_disks,
         config.collector.monitor_networks,
-        config.collector.monitor_temps
+        config.collector.monitor_temps,
+        top_n.unwrap_or(0)
     );
 
     let mut collector = Collector::new(&config.collector)?;
@@ -26,8 +34,23 @@ fn main() -> Result<()> {
     loop {
         let snap = collector.snapshot();
         println!("{}", headline(&snap));
+        if let Some(n) = top_n {
+            for (i, p) in collector.processes(n, ProcessSort::Cpu).iter().enumerate() {
+                println!("{}", process_row(i, p));
+            }
+        }
         sleep(interval);
     }
+}
+
+fn process_row(i: usize, p: &ProcessStat) -> String {
+    format!(
+        " {:>3}. {:<34} {:5.1}%  {}",
+        i + 1,
+        p.name,
+        p.cpu_percent,
+        sysmon_core::format_bytes(p.mem_bytes)
+    )
 }
 
 /// บรรทัดเดียวอ่านเร็ว ๆ เหมือน Task Manager ย่อ

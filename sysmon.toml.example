@@ -6,3 +6,4 @@ sample_interval_ms = 1000
 monitor_disks = true
 monitor_networks = true
 monitor_temps = true
+monitor_nvidia = true

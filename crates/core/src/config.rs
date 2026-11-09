@@ -16,6 +16,8 @@ pub struct CollectorConfig {
     pub monitor_networks: bool,
     /// อ่านอุณหภูมิ (บางเครื่องต้องสิทธิ์ admin/root)
     pub monitor_temps: bool,
+    /// โหลด NVIDIA NVML ถ้ามี (เติม VRAM/temp ที่ D3DKMT ไม่ให้)
+    pub monitor_nvidia: bool,
 }
 
 impl Default for CollectorConfig {
@@ -24,6 +26,7 @@ impl Default for CollectorConfig {
             monitor_disks: true,
             monitor_networks: true,
             monitor_temps: true,
+            monitor_nvidia: true,
         }
     }
 }
