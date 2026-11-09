@@ -63,6 +63,15 @@ fn headline(s: &Snapshot) -> String {
         ));
     }
 
+    for g in &s.gpus {
+        parts.push(format!(
+            "{}  {}%  {} MiB",
+            g.name,
+            g.usage_percent.map(|u| format!("{:.0}", u)).unwrap_or("--".into()),
+            g.mem_used_mb.unwrap_or(0)
+        ));
+    }
+
     // สรุป network เป็นตัวเดียว (ผลรวมทุก interface) — ต่อ interface ดูใน tui
     let (rx, tx) = s
         .nets
@@ -70,7 +79,7 @@ fn headline(s: &Snapshot) -> String {
         .fold((0.0, 0.0), |(r, t), n| (r + n.rx_bps, t + n.tx_bps));
     if rx > 0.0 || tx > 0.0 {
         parts.push(format!(
-            "NET ↓{} ↑{}",
+            "NET rx {} tx {}",
             sysmon_core::format_rate(rx),
             sysmon_core::format_rate(tx)
         ));

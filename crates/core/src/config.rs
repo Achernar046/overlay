@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::path::Path;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(default)]
 pub struct Config {
     /// ช่วงเวลา sampling (มิลลิวินาที) — plan: 1s (live) / 5s (background)
     pub sample_interval_ms: u64,

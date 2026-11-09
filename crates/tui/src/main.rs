@@ -34,15 +34,13 @@ fn run(terminal: &mut ratatui::DefaultTerminal, config: &Config) -> Result<()> {
 
     loop {
         while last_sample.elapsed() < interval {
-            if event::poll(interval)? {
-                if let Event::Key(k) = event::read()? {
-                    if k.kind == KeyEventKind::Press
+            if event::poll(interval)?
+                && let Event::Key(k) = event::read()?
+                    && k.kind == KeyEventKind::Press
                         && matches!(k.code, KeyCode::Char('q') | KeyCode::Esc)
                     {
                         return Ok(());
                     }
-                }
-            }
         }
 
         let snap = collector.snapshot();

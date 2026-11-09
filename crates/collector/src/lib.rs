@@ -32,15 +32,15 @@ impl Collector {
 
         let disks = config
             .monitor_disks
-            .then(|| Disks::new_with_refreshed_list())
+            .then(Disks::new_with_refreshed_list)
             .transpose()?;
         let nets = config
             .monitor_networks
-            .then(|| Networks::new_with_refreshed_list())
+            .then(Networks::new_with_refreshed_list)
             .transpose()?;
         let temps = config
             .monitor_temps
-            .then(|| Components::new_with_refreshed_list())
+            .then(Components::new_with_refreshed_list)
             .transpose()?;
         // GPU ไม่มี/เรียกไม่ได้ = ไม่มีข้อมูล ไม่ใช่ fatal
         let gpus = Gpus::new_with_refreshed_list().ok();
