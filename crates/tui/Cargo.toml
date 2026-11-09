@@ -1,0 +1,12 @@
+[package]
+name = "sysmon-tui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Terminal dashboard for sysmon (Phase 1 test UI; desktop UI มาใน Phase 4)"
+
+[dependencies]
+sysmon-core.workspace = true
+sysmon-collector.workspace = true
+anyhow.workspace = true
+ratatui.workspace = true

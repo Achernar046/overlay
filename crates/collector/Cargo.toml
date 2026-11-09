@@ -1,0 +1,11 @@
+[package]
+name = "sysmon-collector"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "CPU/RAM/Disk/Network collector for sysmon"
+
+[dependencies]
+sysmon-core.workspace = true
+sysinfo.workspace = true
+smallvec.workspace = true

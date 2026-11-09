@@ -1,0 +1,8 @@
+# ตัวอย่าง config ของ sysmon (ไว้ที่ working directory ของโปรแกรม ชื่อ sysmon.toml)
+
+sample_interval_ms = 1000
+
+[collector]
+monitor_disks = true
+monitor_networks = true
+monitor_temps = true
