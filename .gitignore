@@ -8,4 +8,5 @@ out2.txt
 
 dist/
 sysmon.db
+sysmon.db-*
 *.db
