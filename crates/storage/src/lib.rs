@@ -403,6 +403,130 @@ impl Storage {
     }
 }
 
+/// จุดข้อมูล raw หนึ่งจุด — สำหรับ UI วาดกราฟช่วงสั้น
+/// net_rx/net_tx เป็นผลรวมทุก interface ณ จุดเวลานั้น
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct RawPoint {
+    pub ts: i64,
+    pub cpu_total: Option<f64>,
+    pub cpu_temp: Option<f64>,
+    pub mem_used: Option<f64>,
+    pub mem_total: Option<f64>,
+    pub swap_used: Option<f64>,
+    pub net_rx: Option<f64>,
+    pub net_tx: Option<f64>,
+}
+
+/// จุด rollup หนึ่ง bucket (1m หรือ 1h) — สำหรับ UI วาดกราฟช่วงยาว
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct BucketPoint {
+    pub ts: i64,
+    pub samples: i64,
+    pub cpu_avg: Option<f64>,
+    pub cpu_min: Option<f64>,
+    pub cpu_max: Option<f64>,
+    pub cpu_temp: Option<f64>,
+    pub mem_used: Option<f64>,
+    pub swap_used: Option<f64>,
+    pub net_rx: Option<f64>,
+    pub net_tx: Option<f64>,
+}
+
+impl Storage {
+    /// อ่าน raw ตั้งแต่ `since_ms` ขึ้นไป สูงสุด `limit` แถว (เรียง ts น้อย → มาก)
+    pub fn read_raw(&self, since_ms: i64, limit: usize) -> Result<Vec<RawPoint>> {
+        let mut out = Vec::new();
+        {
+            let mut stmt = self.conn.prepare(
+                "SELECT ts, cpu_total, cpu_temp, mem_used, mem_total, swap_used
+                 FROM metrics_raw WHERE ts >= ?1 ORDER BY ts ASC LIMIT ?2",
+            )?;
+            let rows = stmt.query_map(params![since_ms, limit as i64], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, Option<f64>>(1)?,
+                    row.get::<_, Option<f64>>(2)?,
+                    row.get::<_, Option<i64>>(3)?,
+                    row.get::<_, Option<i64>>(4)?,
+                    row.get::<_, Option<i64>>(5)?,
+                ))
+            })?;
+            for r in rows {
+                let (ts, cpu, temp, mem, mem_total, swap) = r?;
+                out.push(RawPoint {
+                    ts,
+                    cpu_total: cpu,
+                    cpu_temp: temp,
+                    mem_used: mem.map(|v| v as f64),
+                    mem_total: mem_total.map(|v| v as f64),
+                    swap_used: swap.map(|v| v as f64),
+                    net_rx: None,
+                    net_tx: None,
+                });
+            }
+        }
+
+        // net: ผลรวมทุก interface ต่อ ts (ตารางลูก — ต่อเนื่องกับ rollup)
+        let mut stmt = self
+            .conn
+            .prepare("SELECT ts, rx_bps, tx_bps FROM metrics_net WHERE ts >= ?1")?;
+        let rows = stmt.query_map(params![since_ms], |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, Option<f64>>(1)?,
+                row.get::<_, Option<f64>>(2)?,
+            ))
+        })?;
+        let mut by_ts: BTreeMap<i64, (f64, f64)> = BTreeMap::new();
+        for r in rows {
+            let (ts, rx, tx) = r?;
+            let e = by_ts.entry(ts).or_insert((0.0, 0.0));
+            e.0 += rx.unwrap_or(0.0);
+            e.1 += tx.unwrap_or(0.0);
+        }
+        for p in &mut out {
+            if let Some((rx, tx)) = by_ts.get(&p.ts) {
+                p.net_rx = Some(*rx);
+                p.net_tx = Some(*tx);
+            }
+        }
+        Ok(out)
+    }
+
+    /// อ่าน rollup 1m ตั้งแต่ `since_ms` ขึ้นไป (เรียง ts น้อย → มาก)
+    pub fn read_1m(&self, since_ms: i64, limit: usize) -> Result<Vec<BucketPoint>> {
+        self.read_rollups("metrics_1m", since_ms, limit)
+    }
+
+    /// อ่าน rollup 1h ตั้งแต่ `since_ms` ขึ้นไป (เรียง ts น้อย → มาก)
+    pub fn read_1h(&self, since_ms: i64, limit: usize) -> Result<Vec<BucketPoint>> {
+        self.read_rollups("metrics_1h", since_ms, limit)
+    }
+
+    fn read_rollups(&self, table: &str, since_ms: i64, limit: usize) -> Result<Vec<BucketPoint>> {
+        let sql = format!(
+            "SELECT ts, samples, cpu_avg, cpu_min, cpu_max, cpu_temp, mem_used, swap_used, net_rx, net_tx
+             FROM {table} WHERE ts >= ?1 ORDER BY ts ASC LIMIT ?2"
+        );
+        let mut stmt = self.conn.prepare(&sql)?;
+        let rows = stmt.query_map(params![since_ms, limit as i64], |row| {
+            Ok(BucketPoint {
+                ts: row.get(0)?,
+                samples: row.get(1)?,
+                cpu_avg: row.get(2)?,
+                cpu_min: row.get(3)?,
+                cpu_max: row.get(4)?,
+                cpu_temp: row.get(5)?,
+                mem_used: row.get(6)?,
+                swap_used: row.get(7)?,
+                net_rx: row.get(8)?,
+                net_tx: row.get(9)?,
+            })
+        })?;
+        rows.collect()
+    }
+}
+
 fn avg(v: &[f64]) -> Option<f64> {
     if v.is_empty() {
         None
@@ -537,5 +661,50 @@ mod tests {
         let disk_rows: i64 = st.conn.query_row("SELECT COUNT(*) FROM metrics_disk", [], |r| r.get(0)).unwrap();
         let net_rows: i64 = st.conn.query_row("SELECT COUNT(*) FROM metrics_net", [], |r| r.get(0)).unwrap();
         assert_eq!((gpu_rows, disk_rows, net_rows), (1, 1, 2));
+    }
+
+    #[test]
+    fn read_raw_returns_points_with_net_sums() {
+        let mut st = Storage::open_memory().unwrap();
+        st.insert_snapshots(&[
+            snap(1_000, 10.0, 40.0, 1_000, 0),
+            snap(2_000, 20.0, 50.0, 2_000, 100),
+        ])
+        .unwrap();
+
+        // ทั้งหมดอยู่หลัง since = 0 เรียงน้อย → มาก
+        let pts = st.read_raw(0, 100).unwrap();
+        assert_eq!(pts.len(), 2);
+        assert_eq!(pts[0].ts, 1_000);
+        assert_eq!(pts[0].cpu_total, Some(10.0));
+        assert_eq!(pts[1].mem_used, Some(2_000.0));
+        // rx ผลรวม 2 interface = 30.0, tx = 6.0
+        assert_eq!(pts[0].net_rx, Some(30.0));
+        assert_eq!(pts[1].net_tx, Some(6.0));
+
+        // since เทียบกับ ts กรองได้ + limit ได้
+        assert_eq!(st.read_raw(1_500, 100).unwrap().len(), 1);
+        assert_eq!(st.read_raw(0, 1).unwrap().len(), 1);
+        assert_eq!(st.read_raw(0, 1).unwrap()[0].ts, 1_000);
+    }
+
+    #[test]
+    fn read_rollups_match_tables() {
+        let mut st = Storage::open_memory().unwrap();
+        st.insert_snapshots(&[snap(1_000_000, 10.0, 40.0, 1_000, 0)]).unwrap();
+        st.rollup_minute_bucket(minute_bucket(1_000_000)).unwrap();
+        st.rollup_hour_bucket(hour_bucket(1_000_000)).unwrap();
+
+        let m1 = st.read_1m(0, 1000).unwrap();
+        assert_eq!(m1.len(), 1);
+        assert_eq!(m1[0].cpu_avg, Some(10.0));
+        assert_eq!(m1[0].samples, 1);
+
+        let h1 = st.read_1h(0, 1000).unwrap();
+        assert_eq!(h1.len(), 1);
+        assert_eq!(h1[0].cpu_avg, Some(10.0));
+
+        // ยังไม่มีตั้งแต่ช่วงที่ระบุ
+        assert!(st.read_1m(2_000_000, 1000).unwrap().is_empty());
     }
 }
