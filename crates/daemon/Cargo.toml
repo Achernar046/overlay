@@ -10,3 +10,9 @@ sysmon-core.workspace = true
 sysmon-collector.workspace = true
 sysmon-storage.workspace = true
 anyhow.workspace = true
+ctrlc.workspace = true
+tray-icon.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+winreg.workspace = true
+windows-sys.workspace = true

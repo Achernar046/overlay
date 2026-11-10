@@ -97,6 +97,11 @@ impl Default for StorageConfig {
 }
 
 impl Config {
+    /// ไฟล์ตัวอย่าง sysmon.toml — ค่า default ทั้งหมด (ใช้กับ `--print-config`)
+    pub fn example_toml() -> String {
+        toml::to_string_pretty(&Self::default()).unwrap_or_default()
+    }
+
     /// อ่านจากไฟล์ TOML ถ้ามี — ไฟล์หาย/แปลงไม่ได้ → ใช้ default แล้วแจ้งเหตุผลกลับ
     pub fn load_or_default(path: impl AsRef<Path>, warn: &mut dyn FnMut(&str)) -> Self {
         let path = path.as_ref();

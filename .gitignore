@@ -4,3 +4,8 @@ sysmon.toml
 
 out.txt
 err.txt
+out2.txt
+
+dist/
+sysmon.db
+*.db

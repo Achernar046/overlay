@@ -2,7 +2,7 @@
 
 Real-time system monitor ด้วย Rust — ตามแผนใน `../rust-system-monitor-plan.md`
 
-**สถานะ:** Phase 5 (+ collector/process/NVML + SQLite + egui dashboard เสร็จ — เหลือ Phase 6: tray/autostart/installer)
+**สถานะ:** Phase 6 ครบทั้งแผน (tray + autostart + flush-before-exit + portable package + profiling)
 
 ## โครงสร้าง
 
@@ -25,10 +25,19 @@ crates/
 cargo run -p sysmon-tui          # dashboard ใน terminal
 cargo run -p sysmon-ui           # egui dashboard (หน้าต่าง GUI)
 cargo run -p sysmon-overlay      # overlay แบบ click-through (Ctrl+Alt+O แสดง/ซ่อน, Ctrl+Alt+P โหมด interactive)
-cargo run -p sysmon-daemon       # daemon พิมพ์สถานะทาง stdout
-cargo run -p sysmon-daemon -- --top 10   # + top process ราย tick
-cargo test --all                 # unit tests (config, formatter, storage, ui)
+
+# daemon
+cargo run -p sysmon-daemon       # โหมด console: พิมพ์สถานะทาง stdout
+cargo run -p sysmon-daemon -- --top 10    # + top process ราย tick
+cargo run -p sysmon-daemon -- --tray      # system tray (Windows): icon + เมนู, ซ่อน console
+cargo run -p sysmon-daemon -- --autostart on   # เปิดเองตอนล็อกอิน (HKCU Run key, ไม่ต้อง admin)
+cargo run -p sysmon-daemon -- --autostart show # ดูสถานะ (`off` = ปิด)
+cargo run -p sysmon-daemon -- --measure   # profiling: เวลา snapshot / ขนาด flush ทุก 60 ticks
+cargo run -p sysmon-daemon -- --print-config   # พิมพ์ sysmon.toml ตัวอย่าง
+cargo test --all                 # unit tests (config, formatter, storage, ui, daemon flush-exit)
 ```
+
+**สำคัญ:** ออกจาก daemon ด้วย `Ctrl+C` หรือเมนู "ออก" ของ tray เสมอ — จะเขียนข้อมูลที่ค้างใน buffer ลง DB ก่อนปิด (kill แบบ force ยังหายข้อมูล ~flush_secs วินาทีสุดท้ายอยู่)
 
 **ปุ่มใน TUI:** `q`/`Esc` ออก · `Tab` สลับหน้า System ↔ Processes · `m` สลับ sort CPU/MEM (ในหน้า Processes)
 
@@ -43,6 +52,10 @@ cargo test --all                 # unit tests (config, formatter, storage, ui)
 - `Ctrl+Alt+O` สลับแสดง/ซ่อน · `Ctrl+Alt+P` สลับโหมด interactive (ลากหน้าต่างจากแถบหัว "sysmon", ปิดด้วยปุ่ม ✕)
 - แก้ปุ่มลัด/ธีม/ขนาด/ตำแหน่งได้ใน `[overlay]` ของ `sysmon.toml` ด้านล่าง
 - เป็น top-level window อย่างเดียว ไม่ inject DLL → ไม่ชน anti-cheat; ใช้ไม่ได้กับเกมที่เป็น *exclusive fullscreen* — สลับเป็น borderless/windowed
+
+**System tray + autostart (Phase 6):** รัน `sysmon-daemon --tray` (Windows) — icon ใน tray พร้อม tooltip CPU/RAM อัพเดตทุก 2 วิ, เมนู: เปิดหน้าต่าง Live / เปิด overlay / toggle *"เปิดเองเมื่อล็อกอิน"* / ออก (flush ก่อนปิด) · console จะถูกซ่อนตอนเริ่ม
+
+**แจกจ่าย (portable):** `powershell -ExecutionPolicy Bypass -File scripts\package.ps1` → build release แล้วแพ็ก `dist/sysmon-<เวอร์ชัน>-windows-x64.zip` (daemon/ui/overlay/tui + README + `sysmon.toml.sample`) — ไว้อัพขึ้น GitHub Releases ตามแผน
 
 ## config
 
