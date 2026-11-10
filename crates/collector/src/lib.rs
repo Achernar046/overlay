@@ -23,6 +23,9 @@ use sysmon_core::{
 /// ผูกตัวตน NVIDIA จากชื่อ vendor ที่ sysinfo รายงาน
 const NVIDIA_MARKER: &str = "nvidia";
 
+/// ค่า NVML device หนึ่งตัว: (temp °C, mem_used MiB, mem_total MiB, usage %)
+type NvmlSample = (Option<u32>, Option<u64>, Option<u64>, Option<f32>);
+
 pub struct Collector {
     sys: System,
     disks: Option<Disks>,
@@ -222,11 +225,8 @@ impl Collector {
         out
     }
 
-    /// ค่าจาก NVML device ลำดับที่ `index`: (temp °C, mem_used MiB, mem_total MiB, usage %)
-    fn nvml_info(
-        &self,
-        index: usize,
-    ) -> Option<(Option<u32>, Option<u64>, Option<u64>, Option<f32>)> {
+    /// ค่า NVML device หนึ่งตัว: temp °C / mem_used / mem_total (MiB) / usage %
+    fn nvml_info(&self, index: usize) -> Option<NvmlSample> {
         let nvml = self.nvml.as_ref()?;
         let device = nvml.device_by_index(index as u32).ok()?;
         let temp = device.temperature(TemperatureSensor::Gpu).ok();

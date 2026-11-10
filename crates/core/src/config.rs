@@ -8,6 +8,7 @@ pub struct Config {
     pub sample_interval_ms: u64,
     pub collector: CollectorConfig,
     pub storage: StorageConfig,
+    pub overlay: OverlayConfig, // Phase 5
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -38,6 +39,35 @@ impl Default for Config {
             sample_interval_ms: 1000,
             collector: CollectorConfig::default(),
             storage: StorageConfig::default(),
+            overlay: OverlayConfig::default(),
+        }
+    }
+}
+
+/// หน้าต่าง overlay (Phase 5)
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(default)]
+pub struct OverlayConfig {
+    /// ระยะขอบหน้าต่างจากมุมจอ (point)
+    pub margin: f32,
+    /// ขนาดเนื้อหา (1.0 = ปกติ) — 0.5–2.0
+    pub scale: f32,
+    /// "dark" หรือ "light"
+    pub theme: String,
+    /// ปุ่มลัดกลางระบบ สลับแสดง/ซ่อน overlay (รูปแบบ "ctrl+alt+o")
+    pub hotkey: String,
+    /// ปุ่มลัดสลับโหมด interactive (หยุด click-through เพื่อลาก/ปิดหน้าต่าง)
+    pub interact_hotkey: String,
+}
+
+impl Default for OverlayConfig {
+    fn default() -> Self {
+        Self {
+            margin: 24.0,
+            scale: 1.0,
+            theme: "dark".into(),
+            hotkey: "ctrl+alt+o".into(),
+            interact_hotkey: "ctrl+alt+p".into(),
         }
     }
 }

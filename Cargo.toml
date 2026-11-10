@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/core", "crates/collector", "crates/daemon", "crates/storage", "crates/tui", "crates/ui"]
+members = ["crates/core", "crates/collector", "crates/daemon", "crates/storage", "crates/tui", "crates/ui", "crates/overlay"]
 
 [workspace.package]
 version = "0.1.0"
@@ -14,6 +14,7 @@ sysmon-storage = { path = "crates/storage" }
 rusqlite = { version = "0.41", features = ["bundled"] }
 eframe = "0.37"
 egui_plot = "0.38"
+global-hotkey = "0.10"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 sysinfo = { version = "0.40", default-features = false, features = ["system", "disk", "network", "component", "gpu"] }
 smallvec = { version = "1", features = ["serde"] }

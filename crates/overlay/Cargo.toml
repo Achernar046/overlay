@@ -1,0 +1,12 @@
+[package]
+name = "sysmon-overlay"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "in-game overlay — transparent always-on-top stats window (Phase 5)"
+
+[dependencies]
+sysmon-core.workspace = true
+sysmon-collector.workspace = true
+eframe.workspace = true
+global-hotkey.workspace = true
