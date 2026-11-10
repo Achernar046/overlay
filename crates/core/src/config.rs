@@ -7,6 +7,7 @@ pub struct Config {
     /// ช่วงเวลา sampling (มิลลิวินาที) — plan: 1s (live) / 5s (background)
     pub sample_interval_ms: u64,
     pub collector: CollectorConfig,
+    pub storage: StorageConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -36,6 +37,31 @@ impl Default for Config {
         Self {
             sample_interval_ms: 1000,
             collector: CollectorConfig::default(),
+            storage: StorageConfig::default(),
+        }
+    }
+}
+
+/// การเก็บประวัติลง SQLite (Phase 3)
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(default)]
+pub struct StorageConfig {
+    pub enabled: bool,
+    /// พาธของไฟล์ database เทียบกับ working directory
+    pub db_path: String,
+    /// เขียนลง DB กี่วินาทีครั้ง (plan: 10-30 วิ เป็น transaction เดียว)
+    pub flush_secs: u64,
+    /// เก็บ raw กี่วันก่อน rollup แล้วลบ (plan: 24 ชม.)
+    pub retention_raw_hours: u64,
+}
+
+impl Default for StorageConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            db_path: "sysmon.db".into(),
+            flush_secs: 15,
+            retention_raw_hours: 24,
         }
     }
 }

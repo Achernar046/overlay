@@ -8,4 +8,5 @@ description = "Background collector daemon for sysmon"
 [dependencies]
 sysmon-core.workspace = true
 sysmon-collector.workspace = true
+sysmon-storage.workspace = true
 anyhow.workspace = true

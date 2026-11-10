@@ -2,7 +2,7 @@
 
 Real-time system monitor ด้วย Rust — ตามแผนใน `../rust-system-monitor-plan.md`
 
-**สถานะ:** Phase 2 (Phase 1 เสร็จ: workspace + collector + TUI; Phase 2: process monitor + NVML)
+**สถานะ:** Phase 3 (1-2 collector/process/NVML เสร็จ + SQLite storage + rollup + retention)
 
 ## โครงสร้าง
 
@@ -10,7 +10,8 @@ Real-time system monitor ด้วย Rust — ตามแผนใน `../rust
 crates/
 ├─ core/       # types (Snapshot, ProcessStat), config, IPC protocol (placeholder)
 ├─ collector/  # CPU/RAM/Disk/GPU/Network ผ่าน sysinfo; NVIDIA เพิ่มด้วย NVML; Top-N process
-├─ daemon/     # โปรแกรมหลักเก็บข้อมูล (--top N = พิมพ์ top process ทุก tick)
+├─ storage/    # SQLite (WAL) — เขียน batch, rollup 1m/1h, retention
+├─ daemon/     # เก็บข้อมูล + เขียน DB รอบ flush (default 15 วิ) (--top N = top process)
 └─ tui/        # terminal dashboard (Phase 4 จะเปลี่ยนเป็น egui)
 ```
 
@@ -28,6 +29,8 @@ cargo test --all                # unit tests (config, formatter)
 **ปุ่มใน TUI:** `q`/`Esc` ออก · `Tab` สลับหน้า System ↔ Processes · `m` สลับ sort CPU/MEM (ในหน้า Processes)
 
 **หมายเหตุ:** ค่า process (CPU/แรม) แม่นตั้งแต่ sample ครั้งที่สอง (sysinfo ต้องวัด delta); GPU NVIDIA ต้องมี driver — ไม่มี NVML ก็ยังได้ usage/VRAM จาก D3DKMT
+
+**ประวัติ (Phase 3):** ปริยายเขียนลง `sysmon.db` (SQLite, WAL) ทุก 15 วิ — แก้ได้ใน `[storage]` ของ `sysmon.toml`; ตรวจไฟล์ด้วย `python scripts/check_db.py [db_path]`
 
 ## config
 

@@ -7,3 +7,9 @@ monitor_disks = true
 monitor_networks = true
 monitor_temps = true
 monitor_nvidia = true
+
+[storage]
+enabled = true
+db_path = "sysmon.db"
+flush_secs = 15        # เขียนลง DB ทุก 10-30 วิ ตาม plan
+retention_raw_hours = 24

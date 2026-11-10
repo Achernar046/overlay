@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/core", "crates/collector", "crates/daemon", "crates/tui"]
+members = ["crates/core", "crates/collector", "crates/daemon", "crates/storage", "crates/tui"]
 
 [workspace.package]
 version = "0.1.0"
@@ -10,6 +10,8 @@ license = "MIT OR Apache-2.0"
 [workspace.dependencies]
 sysmon-core = { path = "crates/core" }
 sysmon-collector = { path = "crates/collector" }
+sysmon-storage = { path = "crates/storage" }
+rusqlite = { version = "0.41", features = ["bundled"] }
 sysinfo = { version = "0.40", default-features = false, features = ["system", "disk", "network", "component", "gpu"] }
 smallvec = { version = "1", features = ["serde"] }
 serde = { version = "1", features = ["derive"] }
