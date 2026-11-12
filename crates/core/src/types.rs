@@ -87,4 +87,5 @@ pub enum ProcessSort {
     #[default]
     Cpu,
     Memory,
+    DiskIo,
 }

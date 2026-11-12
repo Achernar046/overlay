@@ -36,6 +36,8 @@ pub struct Collector {
     last_tick: Instant,
     /// true ตอนยังไม่ผ่านการ sample จริงครั้งแรก — rate อย่าง rx/tx ตอนนี้ไม่น่าเชื่อ
     first_tick: bool,
+    /// ครั้งล่าสุดที่ refresh_processes — คำนวณ io_bps ต่อวินาที
+    last_proc_refresh: Option<Instant>,
 }
 
 impl Collector {
@@ -70,6 +72,7 @@ impl Collector {
             nvml,
             last_tick: Instant::now(),
             first_tick: true,
+            last_proc_refresh: None,
         })
     }
 
@@ -122,6 +125,13 @@ impl Collector {
     pub fn processes(&mut self, top_n: usize, sort: ProcessSort) -> SmallVec<[ProcessStat; 16]> {
         self.sys.refresh_processes(ProcessesToUpdate::All, true);
 
+        // disk_usage ของ sysinfo เป็น bytes ระหว่าง refresh นี้กับรอบก่อน — ต้องหารเวลาเป็น bps
+        let now = Instant::now();
+        let dt = self
+            .last_proc_refresh
+            .replace(now)
+            .map(|t| now.duration_since(t).as_secs_f64());
+
         let mut stats: SmallVec<[ProcessStat; 16]> = self
             .sys
             .processes()
@@ -133,16 +143,34 @@ impl Collector {
                 name: p.name().to_string_lossy().into_owned(),
                 cpu_percent: p.cpu_usage(),
                 mem_bytes: p.memory(),
-                io_bps: None, // per-process disk IO เพิ่มภายหลัง
+                // อ่าน+เขียน ต่อวินาที — รอบแรกไม่รู้ dt จึงยังไม่มีค่า
+                io_bps: dt.map(|d| {
+                    let u = p.disk_usage();
+                    ((u.read_bytes + u.written_bytes) as f64 / d.max(0.001)) as u64
+                }),
             })
             .collect();
 
         stats.sort_by(|a: &ProcessStat, b: &ProcessStat| match sort {
             ProcessSort::Cpu => b.cpu_percent.total_cmp(&a.cpu_percent),
             ProcessSort::Memory => b.mem_bytes.cmp(&a.mem_bytes),
+            ProcessSort::DiskIo => b.io_bps.cmp(&a.io_bps),
         });
         stats.truncate(top_n);
         stats
+    }
+
+    /// ส่ง signal ให้ process จบ (Windows: TerminateProcess) — คืนสำเร็จ/ไม่สำเร็จ
+    /// กับเหตุผลสั้น ๆ แสดงใน UI
+    pub fn kill(&mut self, pid: u32) -> Result<(), String> {
+        let target = self.sys.process(sysinfo::Pid::from_u32(pid));
+        match target {
+            Some(p) if p.kill() => Ok(()),
+            Some(_) => Err(format!(
+                "kill pid {pid} ไม่สำเร็จ (ไม่มีสิทธิ์เพียงพอ — process ของระบบ/ผู้ใช้อื่นต้องรันแบบ admin)"
+            )),
+            None => Err(format!("ไม่พบ process pid {pid} (จบไปแล้ว)")),
+        }
     }
 
     /// เลือกเซนเซอร์อุณหภูมิ CPU แบบ heuristic (ชื่อขึ้น CPU / Package / Core) — ไม่เจอ = None
@@ -258,5 +286,31 @@ impl Collector {
             }
         }
         out
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+
+    /// รอบแรกไม่มี dt จึงไม่มีค่า io_bps — รอบสองต้องมีทุกตัว (แม้เป็น 0)
+    #[test]
+    fn processes_second_pass_has_io_rate() {
+        let mut c = Collector::new(&CollectorConfig::default()).expect("สร้าง collector");
+        let first = c.processes(32, ProcessSort::Cpu);
+        assert!(first.iter().all(|p| p.io_bps.is_none()));
+        std::thread::sleep(Duration::from_millis(120));
+        let second = c.processes(32, ProcessSort::Cpu);
+        assert!(second.iter().all(|p| p.io_bps.is_some()));
+        assert!(!second.is_empty());
+    }
+
+    /// pid ที่ไม่มีจริงต้อง error ชัด ๆ — ไม่ panic
+    #[test]
+    fn kill_missing_pid_errors() {
+        let mut c = Collector::new(&CollectorConfig::default()).expect("สร้าง collector");
+        let err = c.kill(u32::MAX).expect_err("pid ไม่มีจริงต้อง error");
+        assert!(err.contains("ไม่พบ process"));
     }
 }

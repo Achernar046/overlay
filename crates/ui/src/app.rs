@@ -12,18 +12,25 @@ use egui_plot::{GridMark, Legend, Line, Plot, PlotPoints, Polygon};
 
 use sysmon_collector::Collector;
 use sysmon_core::ipc::SnapshotFeed;
-use sysmon_core::{format_bytes, format_rate, Config, Snapshot};
+use sysmon_core::{
+    format_bytes, format_rate, Config, ProcessSort, ProcessStat, Snapshot,
+};
 use sysmon_storage::{BucketPoint, RawPoint, Storage};
 
 /// เก็บข้อมูล live ย้อนหลังสูงสุด (จุด) — 600 จุด ≈ 10 นาที ที่ 1 วิ/จุด
 const LIVE_POINTS: usize = 600;
 /// downsample ประวัติก่อนวาด — กัน 40k+ จุดทำให้ plot ช้า
 const HIST_MAX_POINTS: usize = 10_000;
+/// process list ดึงกี่ตัว (เรียง/กรองฝั่ง client ต่อ)
+const PROC_TOP_N: usize = 1024;
+/// รอบ refresh ของหน้า Processes
+const PROC_REFRESH: Duration = Duration::from_secs(2);
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum Tab {
     Live,
     History,
+    Processes,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -158,6 +165,15 @@ pub struct SystemMonitorApp {
     hist_loaded_for: Option<HistoryRange>,
     hist_loaded_at: Option<Instant>,
     hist_err: Option<String>,
+
+    // --- หน้า Processes ---
+    procs: Vec<ProcessStat>,
+    procs_loaded_at: Option<Instant>,
+    proc_sort: ProcessSort,
+    proc_search: String,
+    /// pid ที่รอผู้ใช้ยืนยัน kill (มี modal ขึ้นอยู่)
+    kill_confirm: Option<u32>,
+    kill_msg: Option<(bool, String)>,
 }
 
 impl SystemMonitorApp {
@@ -188,6 +204,12 @@ impl SystemMonitorApp {
             hist_loaded_for: None,
             hist_loaded_at: None,
             hist_err: None,
+            procs: Vec::new(),
+            procs_loaded_at: None,
+            proc_sort: ProcessSort::Cpu,
+            proc_search: String::new(),
+            kill_confirm: None,
+            kill_msg: None,
         }
     }
 
@@ -312,6 +334,9 @@ impl eframe::App for SystemMonitorApp {
     /// งานไม่วาดจอ: sample + อ่านประวัติ — รันระหว่างี่ window ซ่อนก็ยังเดิน
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.tick_live(ctx);
+        if self.tab == Tab::Processes {
+            self.tick_processes();
+        }
         if self.should_reload_history() {
             self.load_history(now_ms());
         }
@@ -324,6 +349,7 @@ impl eframe::App for SystemMonitorApp {
         egui::CentralPanel::default().show(ui, |panel| match self.tab {
             Tab::Live => self.ui_live(panel),
             Tab::History => self.ui_history(panel),
+            Tab::Processes => self.ui_processes(panel),
         });
     }
 }
@@ -354,10 +380,175 @@ impl SystemMonitorApp {
             }
 
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.selectable_value(&mut self.tab, Tab::Processes, "Processes");
                 ui.selectable_value(&mut self.tab, Tab::History, "ประวัติ");
                 ui.selectable_value(&mut self.tab, Tab::Live, "Live");
             });
         });
+    }
+
+    // ---------- หน้า Processes ----------
+
+    /// ดึง process list ทุก 2 วิ เมื่อหน้านี้เปิดอยู่ (เรียง/กรองเอาตอนวาด)
+    fn tick_processes(&mut self) {
+        let due = self
+            .procs_loaded_at
+            .is_none_or(|t| t.elapsed() >= PROC_REFRESH);
+        if !due {
+            return;
+        }
+        if let Some(c) = self.collector.as_mut() {
+            // ดึงเรียงตาม CPU มาก่อน — ความถี่ต่อก็ยังได้ตัวที่กินแรงสุดไว้ใน 1024 อันดับ
+            self.procs = c.processes(PROC_TOP_N, ProcessSort::Cpu).into_vec();
+            self.procs_loaded_at = Some(Instant::now());
+        }
+    }
+
+    fn ui_processes(&mut self, ui: &mut egui::Ui) {
+        if let Some(err) = &self.collector_err {
+            ui.colored_label(egui::Color32::RED, format!("Collector เปิดไม่ได้: {err}"));
+            return;
+        }
+
+        // แถบค้นหา + เรียง
+        ui.horizontal(|ui| {
+            ui.label("ค้นหา:");
+            ui.text_edit_singleline(&mut self.proc_search);
+            if !self.proc_search.is_empty() && ui.button("✕").clicked() {
+                self.proc_search.clear();
+            }
+            ui.separator();
+            ui.label("เรียง:");
+            for (s, label) in [
+                (ProcessSort::Cpu, "CPU"),
+                (ProcessSort::Memory, "RAM"),
+                (ProcessSort::DiskIo, "Disk IO"),
+            ] {
+                ui.selectable_value(&mut self.proc_sort, s, label);
+            }
+            ui.separator();
+            match self.procs_loaded_at {
+                Some(t) => ui.label(
+                    format!("อัพเดต {:.0} วิที่แล้ว", t.elapsed().as_secs_f32()),
+                ),
+                None => ui.label("กำลังอ่านค่าแรก…"),
+            };
+        });
+        ui.add_space(4.0);
+
+        if let Some((ok, msg)) = &self.kill_msg {
+            ui.colored_label(
+                if *ok { egui::Color32::LIGHT_GREEN } else { egui::Color32::RED },
+                msg,
+            );
+        }
+
+        // กรอง + เรียงฝั่ง client
+        let search = self.proc_search.to_lowercase();
+        let sort = self.proc_sort;
+        let mut rows: Vec<&ProcessStat> = self
+            .procs
+            .iter()
+            .filter(|p| {
+                search.is_empty()
+                    || p.name.to_lowercase().contains(&search)
+                    || p.pid.to_string().contains(&search)
+            })
+            .collect();
+        rows.sort_by(|a, b| match sort {
+            ProcessSort::Cpu => b.cpu_percent.total_cmp(&a.cpu_percent),
+            ProcessSort::Memory => b.mem_bytes.cmp(&a.mem_bytes),
+            ProcessSort::DiskIo => b.io_bps.cmp(&a.io_bps),
+        });
+
+        let mut clicked: Option<u32> = None;
+        egui::ScrollArea::vertical()
+            .auto_shrink([false, false])
+            .show_rows(ui, 26.0, rows.len(), |ui, range| {
+                egui::Grid::new("proc_table")
+                    .num_columns(6)
+                    .spacing([12.0, 2.0])
+                    .striped(true)
+                    .show(ui, |ui| {
+                        // หัวตาราง
+                        ui.strong("ชื่อ");
+                        ui.strong("PID");
+                        ui.strong("CPU %");
+                        ui.strong("RAM");
+                        ui.strong("Disk I/O");
+                        ui.strong("");
+                        ui.end_row();
+
+                        for stat in rows.into_iter().skip(range.start).take(range.end - range.start) {
+                            ui.label(stat.name.clone());
+                            ui.label(format!("{}", stat.pid));
+                            ui.label(format!("{:>5.1}", stat.cpu_percent));
+                            ui.label(format_bytes(stat.mem_bytes));
+                            ui.label(
+                                stat.io_bps
+                                    .map(|v| format_rate(v as f64))
+                                    .unwrap_or_else(|| "–".into()),
+                            );
+                            if ui.small_button("จบ…").clicked() {
+                                clicked = Some(stat.pid);
+                            }
+                            ui.end_row();
+                        }
+                    });
+            });
+        if let Some(pid) = clicked {
+            self.kill_confirm = Some(pid);
+        }
+
+        self.ui_kill_confirm(ui);
+    }
+
+    /// modal ยืนยัน kill — กด "จบ…" แล้วต้องมากดยืนยันอีกชั้น
+    fn ui_kill_confirm(&mut self, ui: &mut egui::Ui) {
+        let Some(pid) = self.kill_confirm else { return };
+        let Some(stat) = self.procs.iter().find(|p| p.pid == pid) else {
+            self.kill_confirm = None;
+            return;
+        };
+        let name = stat.name.clone();
+        let mut confirmed = false;
+        let mut cancelled = false;
+
+        egui::Window::new("ยืนยันการจบ process")
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+            .show(ui.ctx(), |ui| {
+                ui.label(format!(
+                    "จบ process ชื่อ \"{name}\" (pid {pid})?\n\nโปรแกรมจะถูกปิดทันที (force kill) ข้อมูลที่ยังไม่ได้บันทึกอาจหาย"
+                ));
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    if ui.button("ยืนยัน — จบเลย").clicked() {
+                        confirmed = true;
+                    }
+                    if ui.button("ยกเลิก").clicked() {
+                        cancelled = true;
+                    }
+                });
+            });
+
+        if cancelled {
+            self.kill_confirm = None;
+        } else if confirmed {
+            self.kill_confirm = None;
+            if let Some(c) = self.collector.as_mut() {
+                let result = c.kill(pid);
+                let (ok, msg) = match &result {
+                    Ok(()) => (true, format!("จบ process \"{name}\" (pid {pid}) แล้ว")),
+                    Err(e) => (false, e.clone()),
+                };
+                self.kill_msg = Some((ok, msg));
+                // รีเฟรชรายการทันที
+                self.procs_loaded_at = None;
+                self.tick_processes();
+            }
+        }
     }
 
     // ---------- หน้า Live ----------

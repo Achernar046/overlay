@@ -39,9 +39,11 @@ cargo test --all                 # unit tests (config, formatter, storage, ui, d
 
 **สำคัญ:** ออกจาก daemon ด้วย `Ctrl+C` หรือเมนู "ออก" ของ tray เสมอ — จะเขียนข้อมูลที่ค้างใน buffer ลง DB ก่อนปิด (kill แบบ force ยังหายข้อมูล ~flush_secs วินาทีสุดท้ายอยู่)
 
-**ปุ่มใน TUI:** `q`/`Esc` ออก · `Tab` สลับหน้า System ↔ Processes · `m` สลับ sort CPU/MEM (ในหน้า Processes)
+**ปุ่มใน TUI:** `q`/`Esc` ออก · `Tab` สลับหน้า System ↔ Processes · `m` สลับ sort CPU/MEM/DISK (ในหน้า Processes)
 
-**ปุ่มใน egui UI:** แถบบนสลับหน้า Live ↔ ประวัติ · หน้า Live = กราฟ CPU/Temp, RAM, Network + bar ต่อ core/GPU/ดิสก์ · หน้า ประวัติ = เลือกช่วง 1 ชม. / 24 ชม. / 30 วัน / 1 ปี (1 ชม. = raw, ช่วงยาว = rollup) กราฟ CPU กราฟ RAM/Network; กราฟซูม/แพนได้ทั้งหมด (double-click reset)
+**ปุ่มใน egui UI:** แถบบนสลับหน้า Live ↔ ประวัติ ↔ Processes · หน้า Live = กราฟ CPU/Temp, RAM, Network + bar ต่อ core/GPU/ดิสก์ · หน้า ประวัติ = เลือกช่วง 1 ชม. / 24 ชม. / 30 วัน / 1 ปี (1 ชม. = raw, ช่วงยาว = rollup) กราฟ CPU กราฟ RAM/Network; กราฟซูม/แพนได้ทั้งหมด (double-click reset)
+
+**หน้า Processes:** ตาราง process รายตัว อัพเดตทุก 2 วิ (ชื่อ, PID, CPU %, RAM, Disk I/O ต่อวินาที) · ช่องค้นหากรองตามชื่อหรือ PID · เรียงตาม CPU / RAM / Disk IO ได้ · ปุ่ม **จบ…** ต่อแถว → มี modal ยืนยันก่อน force-kill (กันมือลั่น) — kill ต้องมีสิทธิ์เพียงพอ (process ของผู้ใช้อื่น/ระบบต้องรันแบบ admin)
 
 **หมายเหตุ:** ค่า process (CPU/แรม) แม่นตั้งแต่ sample ครั้งที่สอง (sysinfo ต้องวัด delta); GPU NVIDIA ต้องมี driver — ไม่มี NVML ก็ยังได้ usage/VRAM จาก D3DKMT
 

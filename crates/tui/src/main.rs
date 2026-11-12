@@ -68,7 +68,8 @@ fn run(terminal: &mut ratatui::DefaultTerminal, config: &Config) -> Result<()> {
                         KeyCode::Char('m') if view == View::Processes => {
                             sort = match sort {
                                 ProcessSort::Cpu => ProcessSort::Memory,
-                                ProcessSort::Memory => ProcessSort::Cpu,
+                                ProcessSort::Memory => ProcessSort::DiskIo,
+                                ProcessSort::DiskIo => ProcessSort::Cpu,
                             };
                             last_proc -= PROC_INTERVAL;
                         }
@@ -237,6 +238,7 @@ fn draw_processes(f: &mut Frame, sort: Sort, procs: &[ProcessStat]) {
     let sort_title = match sort {
         Sort::Cpu => "CPU",
         Sort::Memory => "MEM",
+        Sort::DiskIo => "DISK",
     };
     let rows = procs
         .iter()
@@ -246,6 +248,7 @@ fn draw_processes(f: &mut Frame, sort: Sort, procs: &[ProcessStat]) {
                 p.name.clone(),
                 format!("{:.1}%", p.cpu_percent),
                 format_bytes(p.mem_bytes),
+                p.io_bps.map(|v| format_rate(v as f64)).unwrap_or_else(|| "-".into()),
             ])
         })
         .collect::<Vec<_>>();
@@ -257,9 +260,10 @@ fn draw_processes(f: &mut Frame, sort: Sort, procs: &[ProcessStat]) {
                 Constraint::Min(30),
                 Constraint::Length(8),
                 Constraint::Length(12),
+                Constraint::Length(10),
             ],
         )
-        .header(Row::new(["pid", "name", "CPU", "MEM"]).style(Style::new().fg(Color::Cyan)))
+        .header(Row::new(["pid", "name", "CPU", "MEM", "DISK I/O"]).style(Style::new().fg(Color::Cyan)))
         .block(
             Block::bordered()
                 .title(format!("Processes — top {} ตาม {sort_title}  (Tab = กลับ, m = สลับ sort)", PROC_TOP_N)),
