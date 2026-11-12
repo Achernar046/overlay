@@ -9,6 +9,7 @@ pub struct Config {
     pub collector: CollectorConfig,
     pub storage: StorageConfig,
     pub overlay: OverlayConfig, // Phase 5
+    pub ipc: IpcConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -40,6 +41,7 @@ impl Default for Config {
             collector: CollectorConfig::default(),
             storage: StorageConfig::default(),
             overlay: OverlayConfig::default(),
+            ipc: IpcConfig::default(),
         }
     }
 }
@@ -68,6 +70,24 @@ impl Default for OverlayConfig {
             theme: "dark".into(),
             hotkey: "ctrl+alt+o".into(),
             interact_hotkey: "ctrl+alt+p".into(),
+        }
+    }
+}
+
+/// IPC ผ่าน named pipe — daemon ส่ง snapshot สดให้ ui/overlay (เลี่ยง sample ซ้ำ)
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(default)]
+pub struct IpcConfig {
+    pub enabled: bool,
+    /// ชื่อ socket (namespaced) — ต้องตรงกันทั้ง daemon และ ui/overlay
+    pub name: String,
+}
+
+impl Default for IpcConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            name: crate::ipc::DEFAULT_NAME.into(),
         }
     }
 }

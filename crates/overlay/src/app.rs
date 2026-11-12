@@ -10,6 +10,7 @@ use global_hotkey::hotkey::HotKey;
 use global_hotkey::{GlobalHotKeyEvent, GlobalHotKeyManager, HotKeyState};
 
 use sysmon_collector::Collector;
+use sysmon_core::ipc::SnapshotFeed;
 use sysmon_core::{format_bytes, format_rate, CollectorConfig, Snapshot};
 
 /// ขนาดพื้นฐาน (point) คูณด้วย `scale` ตอนวาด — window ขนาดตรงตาม scale ที่ set ไว้ตอนสร้าง
@@ -25,6 +26,10 @@ pub struct Keys {
 }
 
 pub struct OverlayApp {
+    /// ค่าสดจาก daemon ผ่าน pipe (ถ้าต่อได้) — ได้ก่อน ไม่ sample เอง
+    feed: Option<SnapshotFeed>,
+    feed_retry: Option<Instant>,
+    ipc_name: Option<String>,
     collector: Option<Collector>,
     collector_err: Option<String>,
     snapshot: Option<Snapshot>,
@@ -43,6 +48,8 @@ pub struct OverlayApp {
 }
 
 impl OverlayApp {
+    // constructor รับค่าเตรียมตั้งจาก main ครบชุด — รับเยอะเป็นธรรมชาติ
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         _cc: &eframe::CreationContext<'_>,
         collector_config: CollectorConfig,
@@ -51,12 +58,16 @@ impl OverlayApp {
         scale: f32,
         keys: Keys,
         manager: Option<GlobalHotKeyManager>,
+        ipc_name: Option<String>,
     ) -> Self {
         let (collector, collector_err) = match Collector::new(&collector_config) {
             Ok(c) => (Some(c), None),
             Err(e) => (None, Some(e.to_string())),
         };
         Self {
+            feed: None,
+            feed_retry: Some(Instant::now()),
+            ipc_name,
             collector,
             collector_err,
             snapshot: None,
@@ -116,7 +127,40 @@ impl OverlayApp {
     /// sample ทุก interval แม้ซ่อนหน้าต่าง — พร้อมขึ้นจอเป๊ะทันที
     fn tick_sample(&mut self, ctx: &egui::Context) {
         let due = self.last_sample.is_none_or(|t| t.elapsed() >= self.interval);
-        if due
+
+        // ตำแหน่งแรก: ค่าสดจาก daemon ผ่าน pipe (ลองต่อใหม่ทุก 10 วิ ถ้ายังไม่ได้)
+        let mut from_ipc = false;
+        if self.feed.is_none()
+            && let Some(t) = self.feed_retry
+                && t.elapsed() >= Duration::from_secs(10) {
+                    self.feed = self
+                        .ipc_name
+                        .as_deref()
+                        .map(SnapshotFeed::connect)
+                        .and_then(|r| r.ok());
+                    self.feed_retry = Some(Instant::now());
+                }
+        match self.feed.as_ref() {
+            Some(f) if f.is_alive() => {
+                if due
+                    && let Some(snap) = f.latest()
+                {
+                    self.snapshot = Some(snap);
+                    self.last_sample = Some(Instant::now());
+                    from_ipc = true;
+                }
+            }
+            Some(_) => {
+                // feed ขาด — จะลองใหม่ในอีก 10 วิ
+                self.feed = None;
+                self.feed_retry = Some(Instant::now());
+            }
+            None => {}
+        }
+
+        // fallback: collector ในตัว
+        if !from_ipc
+            && due
             && let Some(c) = self.collector.as_mut()
         {
             let snap = c.snapshot();

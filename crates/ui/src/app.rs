@@ -11,6 +11,7 @@ use eframe::egui;
 use egui_plot::{GridMark, Legend, Line, Plot, PlotPoints, Polygon};
 
 use sysmon_collector::Collector;
+use sysmon_core::ipc::SnapshotFeed;
 use sysmon_core::{format_bytes, format_rate, Config, Snapshot};
 use sysmon_storage::{BucketPoint, RawPoint, Storage};
 
@@ -138,7 +139,10 @@ impl HistPoint {
 pub struct SystemMonitorApp {
     tab: Tab,
 
-    // --- live (Collector อยู่ในตัว UI) ---
+    // --- live (Collector อยู่ในตัว UI, หรือผ่าน IPC จาก daemon) ---
+    feed: Option<SnapshotFeed>,
+    feed_retry: Option<Instant>,
+    ipc_name: Option<String>,
     collector: Option<Collector>,
     collector_err: Option<String>,
     live: Vec<RawPoint>,
@@ -169,6 +173,9 @@ impl SystemMonitorApp {
         Self {
             interval: Duration::from_millis(config.sample_interval_ms.max(200)),
             tab: Tab::Live,
+            feed: None,
+            feed_retry: Some(Instant::now()),
+            ipc_name: config.ipc.enabled.then_some(config.ipc.name.clone()),
             collector,
             collector_err,
             live: Vec::with_capacity(LIVE_POINTS),
@@ -186,10 +193,46 @@ impl SystemMonitorApp {
 
     // ---------- เก็บข้อมูล live ----------
 
+    /// พยายามต่อ IPC จาก daemon — ได้ข้อมูลสด → ไม่ต้อง sample เอง (ไม่แย่งทรัพยากร)
+    fn tick_feed(&mut self) -> bool {
+        // ต่อใหม่ทุก 10 วิ ถ้าไม่มี feed (daemon ยังไม่เปิด) หรือ feed ขาดไปแล้ว
+        if self.feed.is_none() {
+            if let Some(t) = self.feed_retry
+                && t.elapsed() < Duration::from_secs(10) {
+                    return false;
+                }
+            if let Some(name) = self.ipc_name.as_deref() {
+                self.feed = SnapshotFeed::connect(name).ok();
+                self.feed_retry = Some(Instant::now());
+            }
+        }
+        match self.feed.as_ref() {
+            Some(f) if f.is_alive() => f.latest().is_some(),
+            Some(_) => {
+                // feed ขาด — เริ่มนับรอบ retry ใหม่
+                self.feed = None;
+                self.feed_retry = Some(Instant::now());
+                false
+            }
+            None => false,
+        }
+    }
+
     fn tick_live(&mut self, ctx: &egui::Context) {
         let due = self.last_sample.is_none_or(|t| t.elapsed() >= self.interval);
-        if due && self.collector.is_some() {
-            let snap = self.collector.as_mut().unwrap().snapshot();
+
+        // ตำแหน่งแรก: ค่าสดจาก daemon ผ่าน pipe
+        if self.tick_feed() && due {
+            if let Some(f) = self.feed.as_ref()
+                && let Some(snap) = f.latest() {
+                    self.push_live(snap);
+                    self.last_sample = Some(Instant::now());
+                }
+        // fallback: collector ในตัว
+        } else if due
+            && let Some(c) = self.collector.as_mut()
+        {
+            let snap = c.snapshot();
             self.push_live(snap);
             self.last_sample = Some(Instant::now());
         }

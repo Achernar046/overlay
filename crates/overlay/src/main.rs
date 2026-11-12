@@ -64,6 +64,7 @@ fn main() -> eframe::Result<()> {
                 scale,
                 Keys { toggle, interact },
                 manager,
+                config.ipc.enabled.then_some(config.ipc.name.clone()),
             )))
         }),
     )

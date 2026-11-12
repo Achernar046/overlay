@@ -2,7 +2,7 @@
 
 Real-time system monitor ด้วย Rust — ตามแผนใน `../rust-system-monitor-plan.md`
 
-**สถานะ:** Phase 6 ครบทั้งแผน (tray + autostart + flush-before-exit + portable package + profiling)
+**สถานะ:** 6 Phases ครบทั้งแผน + IPC named pipe (daemon → ui/overlay อ่านค่าสดจาก daemon ตัวเดียว)
 
 ## โครงสร้าง
 
@@ -57,6 +57,8 @@ cargo test --all                 # unit tests (config, formatter, storage, ui, d
 
 **แจกจ่าย (portable):** `powershell -ExecutionPolicy Bypass -File scripts\package.ps1` → build release แล้วแพ็ก `dist/sysmon-<เวอร์ชัน>-windows-x64.zip` (daemon/ui/overlay/tui + README + `sysmon.toml.sample`) — ไว้อัพขึ้น GitHub Releases ตามแผน
 
+**IPC ค่าสด:** แนวปฏิบัติตามสถาปัตยกรรมใน plan — daemon เปิด named pipe (`[ipc] name`, default `sysmon-v1`) แล้วส่ง `Snapshot` ทุก tick (postcard + length-prefix) ให้ ui/overlay ที่ต่ออยู่ · ต่อไม่ได้ (daemon ไม่รัน) → แอป fallback ไป collector ในตัวเองและลองต่อใหม่ทุก 10 วิ · ตั้ง `enabled = false` ปิดได้
+
 ## config
 
 อ่าน `sysmon.toml` จาก working directory ถ้ามี (ไม่มี = ใช้ค่า default):
@@ -75,4 +77,8 @@ scale = 1.0            # ขนาดเนื้อหา 0.5–2.0
 theme = "dark"         # "dark" หรือ "light"
 hotkey = "ctrl+alt+o"           # ctrl/alt/shift/super + ตัวอักษร/เลข/f1–f12/arrows
 interact_hotkey = "ctrl+alt+p"  # สลับ click-through ↔ interactive
+
+[ipc]                  # daemon → ui/overlay ผ่าน named pipe
+enabled = true         # daemon เปิด pipe; ui/overlay ต่อไม่ได้จะ fallback sample เอง
+name = "sysmon-v1"     # ชื่อ socket — ต้องตรงกันทุกโปรแกรม
 ```

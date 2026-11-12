@@ -16,6 +16,7 @@ use anyhow::{anyhow, Context, Result};
 use tray_icon::menu::{CheckMenuItem, Menu, MenuEvent, MenuItem, PredefinedMenuItem};
 use tray_icon::{Icon, TrayIconBuilder};
 
+use sysmon_core::ipc::SharedLatest;
 use sysmon_core::Config;
 
 use crate::autostart;
@@ -28,7 +29,7 @@ const ICON_H: u32 = 32;
 /// รีเฟรช tooltip แบบเบา — PeekMessage ทุกเลูป, sleep ระหว่างรอบ
 const PUMP_SLEEP: Duration = Duration::from_millis(50);
 
-pub fn run(config: Config, quit: Arc<AtomicBool>, measure: bool) -> Result<()> {
+pub fn run(config: Config, quit: Arc<AtomicBool>, measure: bool, latest: Option<SharedLatest>) -> Result<()> {
     unsafe { hide_console() };
 
     // monitor โหลดบน worker thread
@@ -40,7 +41,7 @@ pub fn run(config: Config, quit: Arc<AtomicBool>, measure: bool) -> Result<()> {
             .name("sysmon-monitor".into())
             .spawn(move || {
                 if let Err(e) =
-                    MonitorLoop::new(cfg, None, true, measure, Some(status_tx)).run(q)
+                    MonitorLoop::new(cfg, None, true, measure, Some(status_tx), latest).run(q)
                 {
                     eprintln!("[daemon] monitor หยุดผิดปกติ: {e}");
                 }

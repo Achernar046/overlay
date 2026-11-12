@@ -14,6 +14,7 @@ use std::time::{Duration, Instant};
 use anyhow::Result;
 
 use sysmon_collector::Collector;
+use sysmon_core::ipc::SharedLatest;
 use sysmon_core::{Config, ProcessSort, ProcessStat, Snapshot};
 use sysmon_storage::{hour_bucket, minute_bucket, Storage};
 
@@ -29,6 +30,8 @@ pub struct MonitorLoop {
     quiet: bool,
     measure: bool,
     status_tx: Option<Sender<String>>,
+    /// ช่อง snapshot ล่าสุดของ IPC server (ถ้าเปิด)
+    latest: Option<SharedLatest>,
 }
 
 impl MonitorLoop {
@@ -38,6 +41,7 @@ impl MonitorLoop {
         quiet: bool,
         measure: bool,
         status_tx: Option<Sender<String>>,
+        latest: Option<SharedLatest>,
     ) -> Self {
         Self {
             config,
@@ -45,6 +49,7 @@ impl MonitorLoop {
             quiet,
             measure,
             status_tx,
+            latest,
         }
     }
 
@@ -99,6 +104,11 @@ impl MonitorLoop {
             let t0 = Instant::now();
             let snap = collector.snapshot();
             measure.snapshot(t0.elapsed());
+
+            // อัพเดตค่าล่าสุดให้ client ที่ต่อ pipe อยู่ (ui/overlay)
+            if let Some(slot) = &self.latest {
+                *slot.lock().unwrap() = Some(snap.clone());
+            }
 
             if let Some(st) = storage.as_mut() {
                 buffer.push(snap.clone());
@@ -357,7 +367,7 @@ mod tests {
             let q = Arc::clone(&quit);
             let cfg2 = cfg.clone();
             thread::spawn(move || {
-                MonitorLoop::new(cfg2, None, true, false, None).run(q).unwrap()
+                MonitorLoop::new(cfg2, None, true, false, None, None).run(q).unwrap()
             })
         };
         thread::sleep(Duration::from_millis(1500)); // เก็บได้ 1-2 sample

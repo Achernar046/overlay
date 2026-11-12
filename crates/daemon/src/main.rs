@@ -53,6 +53,27 @@ fn main() -> Result<()> {
     let mut warn = |msg: &str| eprintln!("[config] {msg}");
     let config = Config::load_or_default("sysmon.toml", &mut warn);
 
+    // IPC ให้ ui/overlay อ่านค่าสดจาก daemon ตัวเดียว (ไม่ต้อง sample ซ้ำ)
+    let ipc = if config.ipc.enabled {
+        match sysmon_core::ipc::IpcServer::spawn(&config.ipc.name, config.sample_interval_ms as u32)
+        {
+            Ok(server) => {
+                eprintln!("[ipc] ให้บริการ pipe \"{}\"", config.ipc.name);
+                Some(server)
+            }
+            Err(e) => {
+                eprintln!(
+                    "[ipc] เปิด pipe \"{}\" ไม่สำเร็จ ({e}) — ui/overlay จะ sample ในตัวเอง",
+                    config.ipc.name
+                );
+                None
+            }
+        }
+    } else {
+        None
+    };
+    let latest = ipc.as_ref().map(|s| s.latest_slot());
+
     // สัญญาณออก: Ctrl+C (ทุกโหมด) หรือเมนู "ออก" ใน tray
     let quit = Arc::new(AtomicBool::new(false));
     {
@@ -72,18 +93,18 @@ fn main() -> Result<()> {
     if args.tray {
         #[cfg(windows)]
         {
-            tray::run(config, quit, args.measure)?;
+            tray::run(config, quit, args.measure, latest)?;
             return Ok(());
         }
         #[cfg(not(windows))]
         {
-            let _ = (config, &quit, args.measure);
+            let _ = (config, &quit, args.measure, latest);
             eprintln!("[daemon] --tray รองรับเฉพาะ Windows — ทำงานโหมด console แทน");
             return Ok(());
         }
     }
 
-    MonitorLoop::new(config, args.top_n, false, args.measure, None).run(quit)
+    MonitorLoop::new(config, args.top_n, false, args.measure, None, latest).run(quit)
 }
 
 struct Args {
