@@ -12,7 +12,7 @@ sysmon-core = { path = "crates/core" }
 sysmon-collector = { path = "crates/collector" }
 sysmon-storage = { path = "crates/storage" }
 rusqlite = { version = "0.41", features = ["bundled"] }
-eframe = "0.37"
+eframe = { version = "0.37", features = ["persistence"] }
 egui_plot = "0.38"
 global-hotkey = "0.10"
 tray-icon = "0.26"

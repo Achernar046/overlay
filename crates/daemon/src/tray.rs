@@ -29,7 +29,13 @@ const ICON_H: u32 = 32;
 /// รีเฟรช tooltip แบบเบา — PeekMessage ทุกเลูป, sleep ระหว่างรอบ
 const PUMP_SLEEP: Duration = Duration::from_millis(50);
 
-pub fn run(config: Config, quit: Arc<AtomicBool>, measure: bool, latest: Option<SharedLatest>) -> Result<()> {
+pub fn run(
+    config: Config,
+    quit: Arc<AtomicBool>,
+    measure: bool,
+    latest: Option<SharedLatest>,
+    ipc_clients: Option<sysmon_core::ipc::SharedClients>,
+) -> Result<()> {
     unsafe { hide_console() };
 
     // monitor โหลดบน worker thread
@@ -40,8 +46,16 @@ pub fn run(config: Config, quit: Arc<AtomicBool>, measure: bool, latest: Option<
         thread::Builder::new()
             .name("sysmon-monitor".into())
             .spawn(move || {
-                if let Err(e) =
-                    MonitorLoop::new(cfg, None, true, measure, Some(status_tx), latest).run(q)
+                if let Err(e) = MonitorLoop::new(
+                    cfg,
+                    None,
+                    true,
+                    measure,
+                    Some(status_tx),
+                    latest,
+                    ipc_clients,
+                )
+                .run(q)
                 {
                     eprintln!("[daemon] monitor หยุดผิดปกติ: {e}");
                 }

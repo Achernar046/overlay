@@ -14,7 +14,7 @@ use std::time::{Duration, Instant};
 use anyhow::Result;
 
 use sysmon_collector::Collector;
-use sysmon_core::ipc::SharedLatest;
+use sysmon_core::ipc::{SharedClients, SharedLatest};
 use sysmon_core::{Config, ProcessSort, ProcessStat, Snapshot};
 use sysmon_storage::{hour_bucket, minute_bucket, Storage};
 
@@ -32,6 +32,8 @@ pub struct MonitorLoop {
     status_tx: Option<Sender<String>>,
     /// ช่อง snapshot ล่าสุดของ IPC server (ถ้าเปิด)
     latest: Option<SharedLatest>,
+    /// ตัวนับ IPC client — ไม่มีคนต่อ → ลดความถี่ sampling ตาม plan
+    ipc_clients: Option<SharedClients>,
 }
 
 impl MonitorLoop {
@@ -42,6 +44,7 @@ impl MonitorLoop {
         measure: bool,
         status_tx: Option<Sender<String>>,
         latest: Option<SharedLatest>,
+        ipc_clients: Option<SharedClients>,
     ) -> Self {
         Self {
             config,
@@ -50,6 +53,7 @@ impl MonitorLoop {
             measure,
             status_tx,
             latest,
+            ipc_clients,
         }
     }
 
@@ -174,7 +178,12 @@ impl MonitorLoop {
                 }
 
             measure.tick();
-            sleep(interval);
+            // ไม่มี client ต่อ IPC → ลดความถี่ (plan: เก็บลง DB อย่างเดียวพอ)
+            let sleep_for = match &self.ipc_clients {
+                Some(c) if c.load(Ordering::Relaxed) > 0 => interval,
+                _ => interval.max(Duration::from_secs(5)),
+            };
+            sleep(sleep_for);
         }
 
         // ---- flush-before-exit: เขียนข้อมูลค้างก่อนปิด (แก้ data loss ของแผนแรก) ----
@@ -367,7 +376,7 @@ mod tests {
             let q = Arc::clone(&quit);
             let cfg2 = cfg.clone();
             thread::spawn(move || {
-                MonitorLoop::new(cfg2, None, true, false, None, None).run(q).unwrap()
+                MonitorLoop::new(cfg2, None, true, false, None, None, None).run(q).unwrap()
             })
         };
         thread::sleep(Duration::from_millis(1500)); // เก็บได้ 1-2 sample

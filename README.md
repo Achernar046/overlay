@@ -52,6 +52,7 @@ cargo test --all                 # unit tests (config, formatter, storage, ui, d
 **Overlay (Phase 5):** หน้าต่างโปร่งแสงไม่มีกรอบ always-on-top แสดง CPU/RAM/GPU/NET พร้อม bar — เริ่มต้นเป็น *click-through* (คลิกทะลุไปเกมได้) อัพเดตทุก sample interval แม้ซ่อนอยู่
 
 - `Ctrl+Alt+O` สลับแสดง/ซ่อน · `Ctrl+Alt+P` สลับโหมด interactive (ลากหน้าต่างจากแถบหัว "sysmon", ปิดด้วยปุ่ม ✕)
+- **จำตำแหน่ง:** ลากไปไว้ตรงไหนแล้วปิดโปรแกรม เปิดใหม่จะกลับตำแหน่งเดิม (เก็บผ่าน eframe storage ใน AppData) — ครั้งแรกเริ่มที่ `margin` จาก config
 - แก้ปุ่มลัด/ธีม/ขนาด/ตำแหน่งได้ใน `[overlay]` ของ `sysmon.toml` ด้านล่าง
 - เป็น top-level window อย่างเดียว ไม่ inject DLL → ไม่ชน anti-cheat; ใช้ไม่ได้กับเกมที่เป็น *exclusive fullscreen* — สลับเป็น borderless/windowed
 
@@ -60,6 +61,8 @@ cargo test --all                 # unit tests (config, formatter, storage, ui, d
 **แจกจ่าย (portable):** `powershell -ExecutionPolicy Bypass -File scripts\package.ps1` → build release แล้วแพ็ก `dist/sysmon-<เวอร์ชัน>-windows-x64.zip` (daemon/ui/overlay/tui + README + `sysmon.toml.sample`) — ไว้อัพขึ้น GitHub Releases ตามแผน
 
 **IPC ค่าสด:** แนวปฏิบัติตามสถาปัตยกรรมใน plan — daemon เปิด named pipe (`[ipc] name`, default `sysmon-v1`) แล้วส่ง `Snapshot` ทุก tick (postcard + length-prefix) ให้ ui/overlay ที่ต่ออยู่ · ต่อไม่ได้ (daemon ไม่รัน) → แอป fallback ไป collector ในตัวเองและลองต่อใหม่ทุก 10 วิ · ตั้ง `enabled = false` ปิดได้
+
+**Sampling ปรับตามโหลด:** daemon ลดความถี่ sampling เป็นอย่างน้อย 5 วิ อัตโนมัติเมื่อ**ไม่มี client ต่อ pipe อยู่** (เก็บลง DB อย่างเดียวตาม plan) — มีคนต่อแล้วกลับมาความถี่เต็มทันที
 
 ## ผลวัดประสิทธิภาพจริง (release build, Windows 11, 12 cores, RTX 4050 + Intel iGPU)
 

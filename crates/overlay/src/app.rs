@@ -45,6 +45,8 @@ pub struct OverlayApp {
     keys: Keys,
     /// ต้องมีชีวิตอยู่ตลอด ไม่เช่นนั้น hotkey จะถูก unregister
     manager: Option<GlobalHotKeyManager>,
+    /// ตำแหน่งหน้าต่างล่าสุด (monitor space, points) — บันทึกผ่าน eframe persistence
+    saved_pos: Option<egui::Pos2>,
 }
 
 impl OverlayApp {
@@ -64,6 +66,17 @@ impl OverlayApp {
             Ok(c) => (Some(c), None),
             Err(e) => (None, Some(e.to_string())),
         };
+        // ตำแหน่งที่ผู้ใช้ลากไว้ครั้งก่อน — restore ทับค่า margin จาก config
+        let saved_pos = _cc
+            .storage
+            .as_ref()
+            .and_then(|st| st.get_string("overlay_pos"))
+            .and_then(|s| {
+                let (x, y) = s.split_once(',')?;
+                let x = x.trim().parse::<f32>().ok()?;
+                let y = y.trim().parse::<f32>().ok()?;
+                Some(egui::Pos2::new(x, y))
+            });
         Self {
             feed: None,
             feed_retry: Some(Instant::now()),
@@ -81,6 +94,7 @@ impl OverlayApp {
             pass_through_sent: false,
             keys,
             manager,
+            saved_pos,
         }
     }
 
@@ -100,6 +114,24 @@ impl OverlayApp {
         if !self.pass_through_sent {
             ctx.send_viewport_cmd(egui::ViewportCommand::MousePassthrough(!self.interactive));
             self.pass_through_sent = true;
+        }
+        // ตำแหน่งที่บันทึกไว้ครั้งก่อน → ย้ายไปครั้งเดียวตอนเปิด (ทับค่า margin จาก options)
+        if let Some(pos) = self.saved_pos.take() {
+            ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(pos));
+        }
+    }
+
+    /// อัพเดตตำแหน่งล่าสุดของหน้าต่าง (เรียกทุกเฟรมที่วาดจอ) เพื่อเก็บลง storage
+    fn track_position(&mut self, ctx: &egui::Context) {
+        let pos = ctx.input(|i| i.viewport().outer_rect.map(|r| r.min));
+        match (pos, self.saved_pos) {
+            (Some(p), Some(old)) if (p.x - old.x).abs() > 0.5 || (p.y - old.y).abs() > 0.5 => {
+                self.saved_pos = Some(p);
+            }
+            (Some(p), None) => {
+                self.saved_pos = Some(p);
+            }
+            _ => {}
         }
     }
 
@@ -255,6 +287,14 @@ impl eframe::App for OverlayApp {
         self.apply_initial_state(ctx);
         self.poll_hotkeys(ctx);
         self.tick_sample(ctx);
+        self.track_position(ctx);
+    }
+
+    /// เก็บตำแหน่งหน้าต่าง — eframe เรียกตอนปิด + ทุก 30 วิ (auto_save_interval)
+    fn save(&mut self, storage: &mut dyn eframe::Storage) {
+        if let Some(p) = self.saved_pos {
+            storage.set_string("overlay_pos", format!("{},{}", p.x, p.y));
+        }
     }
 
     /// วาดจอด้วย painter ตรง ๆ — ทั้งหน้าต่างเป็นแผงเดียว

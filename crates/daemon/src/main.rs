@@ -73,6 +73,7 @@ fn main() -> Result<()> {
         None
     };
     let latest = ipc.as_ref().map(|s| s.latest_slot());
+    let ipc_clients = ipc.as_ref().map(|s| s.clients_slot());
 
     // สัญญาณออก: Ctrl+C (ทุกโหมด) หรือเมนู "ออก" ใน tray
     let quit = Arc::new(AtomicBool::new(false));
@@ -93,18 +94,18 @@ fn main() -> Result<()> {
     if args.tray {
         #[cfg(windows)]
         {
-            tray::run(config, quit, args.measure, latest)?;
+            tray::run(config, quit, args.measure, latest, ipc_clients)?;
             return Ok(());
         }
         #[cfg(not(windows))]
         {
-            let _ = (config, &quit, args.measure, latest);
+            let _ = (config, &quit, args.measure, latest, ipc_clients);
             eprintln!("[daemon] --tray รองรับเฉพาะ Windows — ทำงานโหมด console แทน");
             return Ok(());
         }
     }
 
-    MonitorLoop::new(config, args.top_n, false, args.measure, None, latest).run(quit)
+    MonitorLoop::new(config, args.top_n, false, args.measure, None, latest, ipc_clients).run(quit)
 }
 
 struct Args {

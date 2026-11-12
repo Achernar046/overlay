@@ -8,7 +8,7 @@
 //!   fallback ไป collector ในตัวเองได้
 
 use std::io::{Read, Write};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
@@ -109,9 +109,12 @@ impl Default for FrameReader {
 
 /// ช่องเก็บ snapshot ล่าสุดที่ MonitorLoop อัพเดตและ clients อ่าน
 pub type SharedLatest = Arc<Mutex<Option<Snapshot>>>;
+/// ตัวนับ client ที่ต่อ pipe อยู่ — ใช้ตัดสินใจว่าจะลดความถี่ sampling ได้ไหม
+pub type SharedClients = Arc<AtomicUsize>;
 
 pub struct IpcServer {
     latest: SharedLatest,
+    clients: SharedClients,
     stop: Arc<AtomicBool>,
     accept_thread: Option<std::thread::JoinHandle<()>>,
 }
@@ -129,10 +132,12 @@ impl IpcServer {
             .create_sync()?;
 
         let latest: SharedLatest = Arc::new(Mutex::new(None));
+        let clients: SharedClients = Arc::new(AtomicUsize::new(0));
         let stop = Arc::new(AtomicBool::new(false));
 
         let accept_thread = {
             let latest = Arc::clone(&latest);
+            let clients = Arc::clone(&clients);
             let stop = Arc::clone(&stop);
             thread::Builder::new()
                 .name("sysmon-ipc".into())
@@ -142,9 +147,10 @@ impl IpcServer {
                         match listener.accept() {
                             Ok(stream) => {
                                 let latest = Arc::clone(&latest);
+                                let clients = Arc::clone(&clients);
                                 let _ = thread::Builder::new()
                                     .name("sysmon-ipc-client".into())
-                                    .spawn(move || serve_client(stream, latest, interval_ms));
+                                    .spawn(move || serve_client(stream, latest, clients, interval_ms));
                             }
                             Err(_) => thread::sleep(poll),
                         }
@@ -154,6 +160,7 @@ impl IpcServer {
 
         Ok(Self {
             latest,
+            clients,
             stop,
             accept_thread: Some(accept_thread),
         })
@@ -162,6 +169,16 @@ impl IpcServer {
     /// ช่องให้ monitor loop อัพเดต snapshot ล่าสุด
     pub fn latest_slot(&self) -> SharedLatest {
         Arc::clone(&self.latest)
+    }
+
+    /// ช่องตัวนับ client — MonitorLoop ใช้ลดความถี่ตอนไม่มีคนต่อ
+    pub fn clients_slot(&self) -> SharedClients {
+        Arc::clone(&self.clients)
+    }
+
+    /// มี client ต่อ pipe อยู่หรือไม่
+    pub fn has_clients(&self) -> bool {
+        self.clients.load(Ordering::Relaxed) > 0
     }
 }
 
@@ -175,7 +192,15 @@ impl Drop for IpcServer {
 }
 
 /// ส่ง Hello แล้ว push snapshot ใหม่ ๆ ให้ client ตัวเดียว จนขาด
-fn serve_client(mut stream: LocalSocketStream, latest: SharedLatest, interval_ms: u32) {
+fn serve_client(
+    mut stream: LocalSocketStream,
+    latest: SharedLatest,
+    clients: SharedClients,
+    interval_ms: u32,
+) {
+    // นับเข้า-นับออกให้ตรง แม้ thread จบกลาง error
+    clients.fetch_add(1, Ordering::Relaxed);
+    let _guard = ClientGuard(&clients);
     let hello = Frame::Hello {
         version: PROTOCOL_VERSION,
         interval_ms,
@@ -195,6 +220,15 @@ fn serve_client(mut stream: LocalSocketStream, latest: SharedLatest, interval_ms
             return; // client ปิด/ขาด — จบ thread นี้
         }
         last_ts = s.ts;
+    }
+}
+
+/// นับเข้า-นับออกของ client connection — Drop กัน thread จบแบบ early return
+struct ClientGuard<'a>(&'a SharedClients);
+
+impl Drop for ClientGuard<'_> {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::Relaxed);
     }
 }
 
@@ -388,5 +422,39 @@ mod tests {
     fn connect_to_missing_server_fails() {
         let name = format!("sysmon-missing-{}", std::process::id());
         assert!(SnapshotFeed::connect(&name).is_err());
+    }
+
+    /// ตัวนับ client ต้องขึ้นเมื่อมีคนต่อ และลงกลับเมื่อขาด — MonitorLoop ใช้ตัดสินลดความถี่
+    /// ใช้ raw stream โดยตรงเพราะ drop มัน = ปิด pipe จริง (SnapshotFeed ถือ stream ใน reader
+    /// thread จน daemon ตาย ซึ่งตรงกับการใช้งานจริงที่แอปออกทั้ง process)
+    #[test]
+    fn client_counter_tracks_connections() {
+        let name = format!("sysmon-count-{}", std::process::id());
+        let server = IpcServer::spawn(&name, 50).expect("เปิด server ไม่ได้");
+        assert!(!server.has_clients());
+
+        let ns = name.to_ns_name::<GenericNamespaced>().unwrap();
+        let client = LocalSocketStream::connect(ns).expect("ต่อไม่ได้");
+        for _ in 0..40 {
+            if server.has_clients() {
+                break;
+            }
+            thread::sleep(Duration::from_millis(50));
+        }
+        assert!(server.has_clients());
+
+        // daemon รู้ตัวว่า client หายตอนพยายามเขียน — ปิดฝั่ง client แล้วป้อนค่าใหม่บังคับเขียน
+        drop(client);
+        *server.latest_slot().lock().unwrap() = Some(Snapshot {
+            ts: 42_000,
+            ..Default::default()
+        });
+        for _ in 0..60 {
+            if !server.has_clients() {
+                break;
+            }
+            thread::sleep(Duration::from_millis(50));
+        }
+        assert!(!server.has_clients());
     }
 }
