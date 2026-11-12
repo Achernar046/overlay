@@ -64,6 +64,8 @@ cargo test --all                 # unit tests (config, formatter, storage, ui, d
 
 **Sampling ปรับตามโหลด:** daemon ลดความถี่ sampling เป็นอย่างน้อย 5 วิ อัตโนมัติเมื่อ**ไม่มี client ต่อ pipe อยู่** (เก็บลง DB อย่างเดียวตาม plan) — มีคนต่อแล้วกลับมาความถี่เต็มทันที
 
+**ยังไม่ทำ (เลื่อนไว้ภายหลัง):** per-process network แยกตาม process — บน Windows ต้องใช้ ETW (Event Tracing for Windows) ซึ่งซับซ้อนและต้องสิทธิ์ admin; plan กำหนดไว้เป็นงาน "ยากสุด ทำท้ายสุด" · ทางเลือกอื่นถ้าต้องการข้อมูลคร่าว ๆ: Resource Monitor ของ Windows อยู่แล้ว
+
 ## ผลวัดประสิทธิภาพจริง (release build, Windows 11, 12 cores, RTX 4050 + Intel iGPU)
 
 วัดด้วย `scripts/measure_perf.ps1` (daemon + db) และ `scripts/measure_ui.ps1` (ui/overlay) · ค่า RAM เป็น Private Memory / Working Set
