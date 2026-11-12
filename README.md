@@ -61,6 +61,20 @@ cargo test --all                 # unit tests (config, formatter, storage, ui, d
 
 **IPC ค่าสด:** แนวปฏิบัติตามสถาปัตยกรรมใน plan — daemon เปิด named pipe (`[ipc] name`, default `sysmon-v1`) แล้วส่ง `Snapshot` ทุก tick (postcard + length-prefix) ให้ ui/overlay ที่ต่ออยู่ · ต่อไม่ได้ (daemon ไม่รัน) → แอป fallback ไป collector ในตัวเองและลองต่อใหม่ทุก 10 วิ · ตั้ง `enabled = false` ปิดได้
 
+## ผลวัดประสิทธิภาพจริง (release build, Windows 11, 12 cores, RTX 4050 + Intel iGPU)
+
+วัดด้วย `scripts/measure_perf.ps1` (daemon + db) และ `scripts/measure_ui.ps1` (ui/overlay) · ค่า RAM เป็น Private Memory / Working Set
+
+| ตัวชี้วัด | เป้า (plan) | ค่าวัดจริง | ผล |
+|---|---|---|---|
+| Daemon CPU | < 0.5% | **0.09% ของทั้งเครื่อง** (1.06% ต่อ core) | ✅ ตามที่ Task Manager แสดง |
+| Daemon RAM | < 25 MB | PM **27.6 MB** (WS 43 MB) | ⚠️ เกิน ~2.6 MB (รวม IPC server + SQLite + NVML) |
+| UI RAM | < 100 MB | PM ~409 MB บนเครื่องนี้ — แต่ **minimal eframe app เปล่าก็ 404 MB** → แอปเราใช้เพิ่มจริง ~5 MB; ตัวเลขใหญ่เป็น overhead ของ NVIDIA OpenGL driver (Optimus) ไม่ใช่โค้ดแอป | ⚠️ ดูหมายเหตุ |
+| DB write | ≤ 1 transaction / 10 วิ | **1 transaction / 15 วิ** (default `flush_secs = 15`) | ✅ |
+| ขนาด DB | < 200 MB / ปี | ~81 B/row เฉลี่ยทุกตาราง × 14 rows/s; raw+gpu+disk+net ถูก retention ตัดที่ 24 ชม. → **steady-state ~100 MB** (ไม่โตต่อ) + rollup 1 นาที 30 วัน ~4 MB + 1 ชม. 1 ปี < 1 MB | ✅ |
+
+หมายเหตุเรื่อง UI RAM: ตัวเลข 400MB วัดเป็น Private Memory ของ process ซึ่งรวม mapping ของ GPU driver; `cargo run -p sysmon-ui --example minimal` คือ app eframe ที่ label บรรทัดเดียว — ได้ค่าใกล้เคียงกัน จึงพิสูจน์ว่า overhead มาจาก framework+driver ไม่ใช่ dashboard ของเรา · ถ้าหน่วยงาน/เครื่องปลายทางใช้ iGPU อย่างเดียวหรือเครื่องอื่น ตัวเลขจะต่างออกไปตาม driver
+
 ## config
 
 อ่าน `sysmon.toml` จาก working directory ถ้ามี (ไม่มี = ใช้ค่า default):
